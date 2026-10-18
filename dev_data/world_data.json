@@ -51,7 +51,7 @@
   ],
   "lore": [
     {
-      "text": "The Obsidian Brotherhood keeps its vigil in the black bogs of the Oakhaven Swamp. They are the drowned order of the Tideborn, monks who chose the dark water over the crown's law three generations ago. Their iron bells toll at dusk for every name the marsh claims, and the living keep a wide berth when the sound crosses the black water. Their wardens wear faceless cypress masks and carry flails wrapped in bell-rope. No one who has heard the bells in full peal has ever returned to speak of what they heard. The Brotherhood answers to no lord; they answer to the tide, and the tide does not forgive.",
+      "text": "The Obsidian Brotherhood keeps its vigil in the black bogs of Oakhaven. Founded by a cult that worshiped the dead tides, they have remained silent since the Drowning Festival began. The iron bells toll not for names or events lost to time, but for those who are remembered — and those who were never given proper names at all.",
       "lore_type": "faction",
       "location_id": "oakhaven_swamp",
       "source_id": "lore_brotherhood_01",
@@ -59,53 +59,42 @@
       "overlap": 15
     },
     {
-      "text": "Vaelen once served the Tideborn as a bell-keeper at the drowned temple. He rang the vigil bells for seven years, standing in water that never warmed, until the night he broke the great bell with a stone and walked out of the swamp for the first time in a decade. The Brotherhood brands him a deserter and a defiler; the Shrine calls him the one who set the dead free. He carries a shard of the broken bell in his coat pocket and a debt he cannot repay. He speaks little, trusts less, and has been seen standing over the bodies of those who died within earshot of his bell.",
-      "lore_type": "character",
+      "text": "The tideglass fragments are the only things that can truly track a Brotherhood warden's movements. They were not made by men, but found in the deeps of the drowned river when the tides changed for the worse. The fragments pulse with a slow, steady rhythm, and they know what is happening even if the watchers do not.",
+      "lore_type": "item",
       "character_id": "vaelen",
       "location_id": "oakhaven_swamp",
-      "source_id": "lore_vaelen_01",
-      "chunk_size": 60,
-      "overlap": 15
-    },
-    {
-      "text": "Oakhaven Swamp was once the granary of the kingdom, a marsh of fat sedge and heron flocks. In the Drowning Year the river rose three nights in a row and took the granary, the causeways, and half the village. What remains is a fog-choked marsh of dead cypress where the water holds its breath. Travelers report that the drowned village is still visible below the surface at low tide, its window shutters open, its market stalls set for business. The local folk do not fish the black water, and they pay the toll to whoever rings the iron bells, though no one alive can name the order that owns them.",
-      "lore_type": "location",
-      "location_id": "oakhaven_swamp",
-      "source_id": "lore_oakhaven_01",
-      "chunk_size": 60,
-      "overlap": 15
-    },
-    {
-      "text": "Captain Vane runs customs out of a customs house that leans on the eastern quay of River's End Docks. She is a former Tideborn quartermaster who traded her vigil for a manifest and a ledger, and she keeps both immaculately. Her rule is simple: every crate is inspected, every seal is broken and re-set, and every name on a manifest is a name she can collect on later. She trades in tideglass, dried sedge, and secrets, and she pays for all three in coin rather than favors. Smugglers who have worked the docks for a decade swear the tide runs backward on the new moon, and they never work the eastern quay on that night.",
-      "lore_type": "character",
-      "character_id": "captain_vane",
-      "location_id": "river_docks",
-      "source_id": "lore_vane_01",
-      "chunk_size": 60,
-      "overlap": 15
-    },
-    {
-      "text": "Old Seraphine lives in a wretched hut in a clearing of ash in the Blackbriar Forest, where the briars grow back within the hour if cut. She was a hedge-witch before the Drowning Year and a court apothecary after it, and she has kept both reputations ever since. She sells remedies for marsh-fever, bell-sickness, and the slow drowning that creeps up the legs of those who wade the black water. Her prices are steep and her haggling is worse, but she has never once sold a dose that did not work. Those who have been refused service by her tend not to come back, and those who have been refused twice tend not to come back at all.",
-      "lore_type": "character",
-      "character_id": "old_seraphine",
-      "location_id": "blackbriar_forest",
-      "source_id": "lore_seraphine_01",
-      "chunk_size": 60,
-      "overlap": 15
-    },
-    {
-      "text": "The tideglass fragment in the player's pack is a shard of the great vigil bell that Vaelen broke with a stone on the night he walked out of the swamp. Tideglass rings true to the source bell even in silence; it warms when a Brotherhood warden is within earshot, and it sings in the dark if the owner is being lied to. The Shard is not magic in any sense the court would recognize. It is a debt, made glass. The Brotherhood would pay any coin for its return, and the Shrine would pay any coin for its keeping. The question is which of them the player believes, and whether the glass answers when it is held up to the ear.",
-      "lore_type": "item",
-      "location_id": "tideborn_shrine",
       "source_id": "lore_tideglass_01",
       "chunk_size": 60,
       "overlap": 15
     },
     {
-      "text": "On the night of the Drowning Festival the river is supposed to give back one thing it has taken. The tradition is old, older than the kingdom, and it is kept with a gravity that makes the living uneasy. The festival is a night of black lanterns, of coins cast into the black water, of the great bell rung once for every name in the drowned village's roll. This year the roll is shorter than it was last year, and the names that remain are not the names the village remembers. The Brotherhood has closed the watchtower to pilgrims, and the Shrine has stopped taking offerings. The water, the Tideborn say, is counting.",
+      "text": "On the night of the Drowning Festival the river is supposed to give back one thing it has taken. The tradition is old, older than the kingdom, and it is kept with a gravity that makes the living uneasy. The festival is a night of black lanterns, of coins cast into the black water, of the great bell rung once for every name in the drowned village's roll. This year the roll is shorter.",
       "lore_type": "event",
       "location_id": "oakhaven_swamp",
       "source_id": "lore_festival_01",
+      "chunk_size": 60,
+      "overlap": 15
+    },
+    {
+      "text": "The tideborn are beings of the deep, ancient and powerful. They do not speak in words but in sensations — the pull of currents, the pulse of tides, the memory of drowning. Those who hear their call may become one with the waters or be lost forever to the depths.",
+      "lore_type": "character",
+      "location_id": "tideborn_shrine",
+      "source_id": "lore_tideborn_01",
+      "chunk_size": 60,
+      "overlap": 15
+    },
+    {
+      "text": "The Blackbriar Forest was once a peaceful woodland, but it has become twisted by something dark. The trees grow in unnatural patterns, and the roots of some are alive with black magic that reaches out to pull unwary travelers into shadowy depths.",
+      "lore_type": "location",
+      "source_id": "lore_blackbriar_01",
+      "chunk_size": 60,
+      "overlap": 15
+    },
+    {
+      "text": "Old Seraphine was once a respected healer in the village, but her experiments with marsh-fever have turned her into something else. She now lives in the forest clearing alone, and she speaks only to those who can provide her with more of the rare ingredients she needs for her research.",
+      "lore_type": "character",
+      "character_id": "old_seraphine",
+      "source_id": "lore_seraphine_01",
       "chunk_size": 60,
       "overlap": 15
     }
@@ -147,12 +136,7 @@
       "quantity": 1
     },
     {
-      "item_id": "tideglass_1",
-      "item_name": "Tideglass fragment (broken vigil bell)",
-      "quantity": 1
-    },
-    {
-      "item_id": "bell_token",
+      "item_id": "brotherhood_token",
       "item_name": "Brotherhood bell-toll token",
       "quantity": 1
     },
@@ -170,13 +154,13 @@
     },
     {
       "ability_id": "wade_blackwater",
-      "name": "Wade the Black Water — cross the Oakhaven marsh without the slow drowning that creeps up the legs of those who wade it",
-      "resource_cost": 15
+      "name": "Wade Through Black Water — move silently through the swamp without disturbing the reeds or alerting wardens",
+      "resource_cost": 10
     },
     {
-      "ability_id": "ring_the_vigil",
-      "name": "Ring the Vigil — toll a name onto the drowned village's roll and hold a Brotherhood warden still for one long breath",
-      "resource_cost": 30
+      "ability_id": "tideborn_healing",
+      "name": "Tideborn Healing — draw upon ancient waters to mend wounds and heal minor ailments",
+      "resource_cost": 25
     }
   ]
 }

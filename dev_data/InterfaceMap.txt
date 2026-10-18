@@ -89,6 +89,80 @@ class StateManager — state_memory/state_manager.py
 class StateManager
 ├── __init__(self, db_path: str = "game_state.db") -> None
 │   Opens (creating if needed) the SQLite database and creates the seven state
+tables (Players, NPCs, Locations, Inventory, Quests, Abilities, ChatHistory)
+and indexes (idx_npcs_location, idx_inventory_owner, idx_quests_player,
+idx_chat_history_player, idx_abilities_player) if absent. Stores only the
+db path (self._db_path); every other method opens its own per-call
+connection — there is no persistent self._conn.
+│   Schema note — Quests table (new):
+│     quest_id TEXT NOT NULL, player_id TEXT NOT NULL, title TEXT NOT NULL,
+│     description TEXT NOT NULL, status TEXT NOT NULL,
+│     PRIMARY KEY (quest_id, player_id);
+│   Schema note — universal resource system (new):
+│     Players gains resource_name TEXT NOT NULL DEFAULT 'Stamina',
+│     current_resource INTEGER NOT NULL DEFAULT 100,
+│     max_resource INTEGER NOT NULL DEFAULT 100.
+│     Abilities: ability_id TEXT NOT NULL, player_id TEXT NOT NULL,
+│     name TEXT NOT NULL, resource_cost INTEGER NOT NULL DEFAULT 0,
+│     PRIMARY KEY (ability_id, player_id); index idx_abilities_player.
+│   Migration: _migrate_resource_columns() (staticmethod) ALTERs the three
+│   resource columns onto pre-existing Players tables (PRAGMA table_info
+guarded, no-op when present) so old game_state.db files keep working.
+├── upsert_ability(self, player_id: str, ability_id: str, name: str,
+│                  resource_cost: int) -> None
+│   Inserts an Ability row or refreshes name/resource_cost when the composite
+│   (ability_id, player_id) already exists (ON CONFLICT upsert);
+│   `with closing(sqlite3.connect(self._db_path)) as conn, conn:`.
+├── upsert_player(self, player_id: str, name: str, hp: int, max_hp: int, level: int,
+│                 current_location_id: Optional[str] = None) -> None
+│   Atomically inserts a player (Players.id PK) or overwrites the full stat block
+│   for an existing id.
+├── upsert_npc(self, npc_id: str, name: str, location_id: Optional[str],
+│              disposition_score: int = 0) -> None
+│   Inserts an NPC or updates its name, location, and disposition in place.
+├── upsert_location(self, location_id: str, name: str, base_description: str = "") -> None
+│   Inserts a location or refreshes its name and base description.
+├── upsert_inventory_item(self, item_id: str, owner_id: str, item_name: str, quantity: int) -> None
+│   Inserts an inventory entry (Inventory.item_id PK) or sets its owner, name,
+│   and absolute quantity.
+├── upsert_quest(self, player_id: str, quest_id: str, title: str, description: str,
+│                status: str) -> None
+│   Inserts a Quest row or refreshes title/description/status when the
+│   composite (quest_id, player_id) already exists (ON CONFLICT upsert);
+│   uses `with closing(sqlite3.connect(self._db_path)) as conn, conn:` for
+│   transaction safety + guaranteed close (same hygiene as every other method).
+├── update_quest_status(self, player_id: str, quest_id: str, status: str) -> None
+│   Advances a quest's status without touching title/description; no-op if the
+│   quest is absent. Used by the orchestrator's quest_updates mutation path.
+│   Also `with closing(sqlite3.connect(self._db_path)) as conn, conn:`.
+├── get_player_state(self, player_id: str) -> Optional[dict[str, Any]]
+│   Returns a single consolidated dict, or None if the player doesn't exist:
+│     player    = {id, name, hp, max_hp, level, current_location_id,
+│                  resource_name, current_resource, max_resource}  (resource fields new)
+│     location  = {id, name, base_description} | None
+│     npcs_here = [{id, name, disposition_score}, ...]   (note: key is "npcs_here")
+│     inventory = [{item_id, item_name, quantity}, ...]
+│     abilities = [{ability_id, name, resource_cost}, ...]   (new key, ordered by name)
+│     quests    = [{quest_id, title, description, status}, ...]   (new key)
+├── append_chat_turn(self, player_id: str, role: str, content: str) -> None
+│   Inserts one chat turn (ChatHistory autoincrement id) and commits.
+├── get_recent_chat(self, player_id: str, limit: int = 15)
+│   -> list[dict[str, str]]
+│   Most recent `limit` turns, oldest-first, as ready-to-send
+│   {"role", "content"} message dicts.
+├── update_player_hp(self, player_id: str, hp_change: int) -> None
+│   Atomic relative HP delta, clamped to [0, max_hp] via a single
+│   UPDATE (MAX(0, MIN(max_hp, hp + ?))); no-op if the player is missing.
+├── update_player_resource(self, player_id: str, change: int) -> None   (new)
+│   Atomic relative resource delta, clamped to [0, max_resource] via a single
+│   UPDATE (MAX(0, MIN(max_resource, current_resource + ?))); no-op if the
+│   player is missing. Used by the orchestrator's resource_change path.
+└── remove_inventory_item(self, item_id: str, owner_id: str) -> None
+    Deletes an inventory entry for the given owner (no-op if absent).
+================================================================
+class StateManager
+├── __init__(self, db_path: str = "game_state.db") -> None
+│   Opens (creating if needed) the SQLite database and creates the seven state
 │   tables (Players, NPCs, Locations, Inventory, Quests, Abilities, ChatHistory)
 │   and indexes (idx_npcs_location, idx_inventory_owner, idx_quests_player,
 │   idx_chat_history_player, idx_abilities_player) if absent. Stores only the
@@ -163,6 +237,159 @@ class StateManager
 
 ================================================================
 KrckRP Orchestrator (FastAPI, v0.2.0) — orchestrator.py
+================================================================
+├── ROUTES
+│   ├── GET  /health
+│   │   └── health() -> dict[str, Any]
+│   │       Liveness probe; flat dict {status, kobold_base_url, model, state_db,
+│   │       chroma_db, chroma_collection, embedding_model}. No LLM/heavy init.
+│   └── POST /api/action  (response_model=PlayerActionResponse)
+│       └── player_action(req: PlayerActionRequest,
+│                         state_mgr = Depends(get_state_manager),
+│                         lore_mgr  = Depends(get_lore_manager),
+│                         llm: LLMClient = Depends(get_llm_client))
+│                         -> PlayerActionResponse
+│           Pipeline: get_player_state → 404 if None
+│                     → search_lore(action, n, {location_id}) [+ global fallback]
+│                       (retrieval failure degrades gracefully to state-only narration)
+│                     → get_recent_chat(player_id, RECENT_CHAT_LIMIT)
+│                     → build_messages(state, lore, action, chat_history)
+│                     → llm.complete → parse_and_apply_mutations(raw, player, state_mgr)
+│                     → append_chat_turn("user") + append_chat_turn("assistant")
+│                     → re-read state → 200 {cleaned narrative, lore, fresh state}
+│                       | 502 on LLM failure
+│
+├── PYDANTIC MODELS
+│   ├── PlayerActionRequest(BaseModel)
+│   │   ├── player_id: str          (min_length=1)
+│   │   ├── action_text: str        (min_length=1)
+│   │   └── n_lore_results: int = 3 (ge=1, le=20)
+│   └── PlayerActionResponse(BaseModel)
+│       ├── narrative_response: str (cleaned — <state_update> blocks removed)
+│       ├── retrieved_lore: list[dict[str, Any]]
+│       └── current_state: dict[str, Any]  (freshly re-read, incl. "quests")
+│
+├── LLM CLIENT (KoboldCpp, OpenAI-compatible)
+│   └── LLMClient
+│       ├── __init__(base_url = KOBOLD_BASE_URL,           # "http://localhost:5001/v1"
+│       │            api_key  = KOBOLD_API_KEY,            # "not-needed"
+│       │            model    = KOBOLD_MODEL,              # "local-model"
+│       │            timeout  = KOBOLD_TIMEOUT,            # 180.0
+│       │            client: Optional[httpx.Client] = None) -> None
+│       │       (client injectable for MockTransport tests; base_url rstripped of "/")
+│       ├── _get_client(self) -> tuple[httpx.Client, bool]
+│       │       Returns injected client (owned=False) or a fresh
+│       │       httpx.Client(timeout=...) (owned=True → closed after the call).
+│       └── complete(self, messages: list[dict[str, str]],
+│                    temperature: float = 0.85,
+│                    max_tokens: int = 1024) -> str
+│           POST to absolute {base_url}/chat/completions with Bearer auth +
+│           Content-Type headers and payload {model, messages, temperature,
+│           max_tokens, stream: False}; returns choices[0].message.content;
+│           raises RuntimeError on transport error / missing choices / missing content.
+│
+├── DEPENDENCY PROVIDERS (module-level singletons via module globals + lazy
+│   import inside the provider functions — NOT @lru_cache)
+│   ├── get_state_manager() -> StateManager   # state_memory.state_manager
+│   │                                       # StateManager(db_path=STATE_DB_PATH)
+│   ├── get_lore_manager()  -> LoreManager    # lore_manager
+│   │                                       # LoreManager(db_path=CHROMA_DB_PATH,
+│   │                                       #             collection_name=CHROMA_COLLECTION,
+│   │                                       #             embedding_model=EMBEDDING_MODEL)
+│   └── get_llm_client()    -> LLMClient      # LLMClient() with CONFIG defaults
+│
+├── EXTERNAL PROMPT CONFIG (new — replaces the old inline DM_SYSTEM_PROMPT)
+│   ├── SYSTEM_PROMPT_KEYS: tuple[str, ...]
+│   │       ("base_dm_rules", "combat_rules", "resource_rules", "formatting_instructions")
+│   ├── _load_system_prompts(path: str = SYSTEM_PROMPTS_PATH) -> dict[str, str]
+│   │       Reads system_prompts.json (single JSON object), requires the four
+│   │       non-empty string keys, and raises RuntimeError (clear message) on
+│   │       missing file / invalid JSON / non-object / missing keys — fails
+│   │       loudly at startup, not mid-request.
+│   │       ("resource_rules" (new) governs the skills & universal resource
+economy: spending/recovery via resource_change, exhaustion at 0,
+│   │       granting skills via ability_add.)
+│   └── SYSTEM_PROMPTS: dict[str, str]
+│           Global prompt configuration dict, loaded once at startup (module
+│           import) from SYSTEM_PROMPTS_PATH.
+│
+├── PROMPT ASSEMBLY (pure functions — unit-testable in isolation)
+│   ├── _pick(mapping: Any, *keys: str) -> Any
+│   │       First non-empty value among candidate keys (schema-tolerant state access).
+│   ├── _format_inventory(items: Any) -> str
+│   ├── _format_npcs(npcs: Any) -> str
+│   ├── _format_quests(quests: Any) -> str                  (new)
+│   │       One line per quest "- {title} (status: {status})", or
+│   │       "  (no active quests)" when empty.
+│   ├── _format_abilities(abilities: Any, resource_label: str = "resource") -> str   (new)
+│   │       One line per ability "- {name} ({resource_label} cost: {cost})", or
+│   │       "  (no skills acquired yet)" when empty.
+│   ├── format_state_for_prompt(state: dict[str, Any]) -> str
+│   │       GM brief: Player name, HP x/y, Level, Primary Resource
+│   │       ({resource_name} current/max), Location (+id), Co-located NPCs
+│   │       (disposition), Inventory, Known Abilities (costs, labelled with the
+│   │       player's resource name), and Quests (status).
+│   ├── format_lore_for_prompt(lore: list[dict[str, Any]]) -> str
+│   │       Numbered snippets with distance + metadata tags (chunk_index /
+│   │       total_chunks excluded from tags); explicit marker if empty.
+│   └── build_messages(state: dict[str, Any], lore: list[dict[str, Any]],
+│                      action_text: str,
+│                      chat_history: Optional[list[dict[str, str]]] = None)
+│                      -> list[dict[str, str]]
+│       (no temperature parameter — sampling lives on LLMClient.complete());
+│       Returns [{"role":"system", ...}, ...chat turns..., {"role":"user", ...}].
+│       System message is now DYNAMIC, built by concatenating
+│       SYSTEM_PROMPTS["base_dm_rules"] + ["combat_rules"] + ["resource_rules"]
+│       + ["formatting_instructions"] (from system_prompts.json), followed by
+│       the injected SQLite state (format_state_for_prompt, incl. resource
+│       pool + abilities + quests) and ChromaDB lore (format_lore_for_prompt).
+│       Chat history: sliding window, oldest-first,
+│       validated to user/assistant roles with non-empty content.
+│
+├── STATE MUTATION PARSING (<state_update> block -> StateManager calls)
+│   ├── STATE_UPDATE_PATTERN: re.Pattern[str]
+│   │       Tag-anchored, non-greedy, DOTALL: <state_update>\s*(payload)\s*</state_update>
+│   ├── _loads_json_block(raw: str) -> Optional[dict[str, Any]]
+│   │       Parses a payload as a JSON object (tolerates markdown fences); warns
+│   │       and returns None on malformed / non-object payloads.
+│   └── _apply_mutations(payload: dict[str, Any], player_id: str, state_mgr) -> None
+│           Applies "hp_change" (update_player_hp), "resource_change" — integer
+delta routed to state_mgr.update_player_resource(player_id, delta),
+│           server-clamped to [0, max_resource] (bool payloads ignored) —,
+│           "ability_add" — a list of {"ability_id", "name", "resource_cost"}
+│           entries, each calling state_mgr.upsert_ability(player_id, ability_id,
+│           name, resource_cost) (bad/absent cost coerced to 0) —, "inventory_add"
+│           (upsert_inventory_item), "inventory_remove"
+│           (remove_inventory_item), "quest_add" — a list of
+│           {"quest_id", "title", "description", "status"} entries, each calling
+│           state_mgr.upsert_quest(player_id, quest_id, title, description,
+│           status) — and "quest_updates" — a list of {"quest_id", "status"}
+│           entries, each calling state_mgr.update_quest_status(player_id,
+│           quest_id, status) (e.g. [{"quest_id": "swamp_mystery",
+│           "status": "completed"}]).
+│       parse_and_apply_mutations(narrative_response: str, player_id: str,
+│                                 state_mgr) -> str
+│           Finds every <state_update> block, parses + applies each payload
+│           (incl. quest_updates) via _apply_mutations, and returns the
+│           narrative with all blocks removed and trimmed. Malformed blocks are
+│           logged/skipped but still stripped; no-block input passes through.
+│
+├── APP / ENTRYPOINT
+│   ├── create_app() -> FastAPI   # title "KrckRP Orchestrator", version "0.2.0";
+│   │                             # separated from module load for testability
+│   ├── app: FastAPI              # module-level instance (app = create_app()) used
+│   │                             # by tests & uvicorn
+│   └── run(host: str = "127.0.0.1", port: int = 8000) -> None
+│       uvicorn.run(app, ...); also `python orchestrator.py` via __main__.
+│
+└── CONFIG (env-overridable constants)
+    KOBOLD_BASE_URL (http://localhost:5001/v1) · KOBOLD_API_KEY (not-needed)
+    KOBOLD_MODEL (local-model) · KOBOLD_TIMEOUT (180.0)
+    STATE_DB_PATH (game_state.db) · CHROMA_DB_PATH (./chroma_db)
+    CHROMA_COLLECTION (world_lore) · EMBEDDING_MODEL (BAAI/bge-base-en-v1.5)
+    SYSTEM_PROMPTS_PATH (system_prompts.json)   (new)
+    LLM_TEMPERATURE (0.85) · RECENT_CHAT_LIMIT (15)
+    FALLBACK_TO_GLOBAL_LORE (default on)
 ================================================================
 ├── ROUTES
 │   ├── GET  /health
@@ -319,6 +546,42 @@ KrckRP Orchestrator (FastAPI, v0.2.0) — orchestrator.py
 
 ================================================================
 World Ingestion (CLI) — world_builder.py (new)
+================================================================
+Standalone ingestion script: loads a world_data.json campaign template (path
+via positional CLI arg, default "world_data.json") and populates BOTH stores.
+├── _require_str(entry: dict[str, Any], key: str, context: str) -> str
+│       Strict string extraction; raises ValueError on missing/empty/non-str.
+├── _optional_str(entry: dict[str, Any], key: str) -> Optional[str]
+│       Optional string field; None when absent/blank, ValueError on non-str.
+├── _optional_signed_int(entry, key, default: int = 0) -> int
+│       Optional signed int (e.g. NPC disposition_score may be negative).
+├── ingest_locations(state_mgr, locations: list[dict[str, Any]]) -> int
+│       Each {location_id, name, description?} -> StateManager.upsert_location.
+├── ingest_npcs(state_mgr, npcs: list[dict[str, Any]]) -> int
+│       Each {npc_id, name, location_id?, disposition_score?} -> upsert_npc.
+├── ingest_items(state_mgr, items: list[dict[str, Any]],
+│                default_owner_id: Optional[str]) -> int
+│       Each {item_id, item_name, owner_id?, quantity?} -> upsert_inventory_item;
+│       owner_id falls back to top-level default_player_id.
+├── ingest_quests(state_mgr, quests: list[dict[str, Any]],
+│                 default_player_id: Optional[str]) -> int
+│       Each {quest_id, title, description?, status?, player_id?} -> upsert_quest;
+│       player_id falls back to top-level default_player_id.
+├── ingest_lore(lore_mgr, lore_entries: list[dict[str, Any]]) -> int
+│       Each {text, lore_type?, location_id?, character_id?, source_id?,
+│       chunk_size?, overlap?} -> LoreManager.insert_lore (chunked + embedded);
+│       returns total chunks written.
+├── build_world(data: dict[str, Any], state_mgr, lore_mgr) -> dict[str, int]
+│       Validates top-level shape (each section a list of dicts; bad entries
+│       warn + skip, good entries land), ingests in dependency order
+│       (locations -> npcs -> items -> quests -> lore), returns per-section
+│       counts including lore chunks written.
+└── main(argv: Optional[Sequence[str]] = None) -> int
+    argparse CLI (positional `path`, nargs='?', default "world_data.json");
+    lazy-imports the heavy managers; prints a per-section summary; exit 0 on
+    success, 1 on missing file / invalid JSON / structural errors.
+    NOTE: managers are TYPE_CHECKING imports + lazy import in main(), so
+    importing world_builder stays cheap (no chromadb/torch at import time).
 ================================================================
 Standalone ingestion script: loads a world_data.json campaign template (path
 via positional CLI arg, default "world_data.json") and populates BOTH stores.

@@ -291,7 +291,7 @@ SYSTEM_PROMPTS: dict[str, str] = _load_system_prompts()
 
 # --------------------------------------------------------------------------- #
 # Prompt assembly (pure, unit-testable)
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 
 
 def _pick(mapping: Any, *keys: str) -> Any:
@@ -328,8 +328,11 @@ def _format_quests(quests: Any) -> str:
     lines = []
     for quest in quests:
         if isinstance(quest, dict):
-            title = _pick(quest, "title", "name") or _pick(quest, "quest_id", "id")
+            # Skip hidden and locked quests to prevent AI from knowing about future quests
             status = quest.get("status")
+            if status in ("hidden", "locked"):
+                continue
+            title = _pick(quest, "title", "name") or _pick(quest, "quest_id", "id")
             line = f"  - {title or 'Unknown quest'}"
             if status is not None:
                 line += f" (status: {status})"
@@ -559,8 +562,10 @@ def _apply_mutations(payload: dict[str, Any], player_id: str, state_mgr) -> None
     :meth:`StateManager.upsert_ability`), ``inventory_add``,
     ``inventory_remove``, ``quest_updates`` (each {"quest_id", "status"} entry
     advances an existing quest via :meth:`StateManager.update_quest_status`),
-    and ``quest_add`` (each {"quest_id", "title", "description", "status"}
-    entry creates or refreshes a quest via :meth:`StateManager.upsert_quest`).
+    ``quest_add`` (each {"quest_id", "title", "description", "status"}
+    entry creates or refreshes a quest via :meth:`StateManager.upsert_quest`),
+    and ``npc_add`` (each {"npc_id", "name", "location_id", "image_prompt"}
+    entry creates or updates an NPC with the given properties).
     """
     hp_change = payload.get("hp_change")
     if isinstance(hp_change, bool):
@@ -655,6 +660,21 @@ def _apply_mutations(payload: dict[str, Any], player_id: str, state_mgr) -> None
             state_mgr.upsert_quest(player_id, quest_id, title, description, status)
             log.info("quest_add %s (%s) for player %s", quest_id, status, player_id)
 
+    npc_adds = payload.get("npc_add")
+    if isinstance(npc_adds, list):
+        for entry in npc_adds:
+            if not isinstance(entry, dict):
+                continue
+            npc_id = str(entry.get("npc_id") or "").strip()
+            name = str(entry.get("name") or "").strip()
+            location_id = str(entry.get("location_id") or "").strip()
+            image_prompt = str(entry.get("image_prompt") or "").strip()
+            if not npc_id or not name or not location_id:
+                log.warning("npc_add entry skipped (npc_id, name and location_id required): %r", entry)
+                continue
+            state_mgr.upsert_npc(npc_id, name, location_id, 0, image_prompt)
+            log.info("npc_add %s (%s) at %s for player %s", npc_id, name, location_id, player_id)
+
 
 def parse_and_apply_mutations(
     narrative_response: str,
@@ -745,6 +765,26 @@ def create_app() -> FastAPI:
             ],
         }
 
+    @app.put("/api/chat/{message_id}")
+    def update_chat_turn(
+        message_id: int,
+        new_content: str,
+        state_mgr=Depends(get_state_manager),  # -> StateManager
+    ) -> dict[str, Any]:
+        """Update a chat turn and delete all subsequent turns to branch the timeline.
+
+        This allows manual editing of past messages without leaving outdated context in the prompt.
+        """
+        try:
+            state_mgr.update_chat_turn(message_id, new_content)
+            state_mgr.delete_chat_turns_after(message_id)
+            return {"status": "success", "message_id": message_id}
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to update chat turn: {exc}",
+            )
+
     @app.post("/api/action", response_model=PlayerActionResponse)
     def player_action(
         req: PlayerActionRequest,
@@ -786,6 +826,38 @@ def create_app() -> FastAPI:
 
         # 3) Chat history (sliding window) ----------------------------------
         chat_history = state_mgr.get_recent_chat(req.player_id, limit=RECENT_CHAT_LIMIT)
+
+        # Event override system - Check for active events and modify NPC grouping if needed
+        active_event = state.get("active_event")
+        if active_event == "meet_and_greet":
+            # Override NPCs in the player's location with specific characters for meet and greet event
+            # Define hardcoded list of NPC dictionaries to use during this event
+            meet_and_greet_npcs = [
+                {
+                    "npc_id": "npc_001",
+                    "name": "Professor McGonagall",
+                    "disposition_score": 5,
+                    "location_id": location_id,
+                    "image_prompt": "A strict but kind witch in her Hogwarts robes, with a stern look"
+                },
+                {
+                    "npc_id": "npc_002",
+                    "name": "Dumbledore",
+                    "disposition_score": 7,
+                    "location_id": location_id,
+                    "image_prompt": "An elderly wizard with long white beard, kind eyes, and a knowing smile"
+                }
+            ]
+            # Update the state to use these specific NPCs during meet_and_greet
+            if "npcs" in state:
+                state["npcs"] = meet_and_greet_npcs
+            elif "npcs_here" in state:
+                state["npcs_here"] = meet_and_greet_npcs
+            else:
+                # If no existing NPC structure, create it
+                if not isinstance(state.get("present_npcs"), list):
+                    state["present_npcs"] = []
+                state["present_npcs"] = meet_and_greet_npcs
 
         # 4) Prompt + LLM ---------------------------------------------------
         messages = build_messages(

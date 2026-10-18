@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS NPCs (
     id                TEXT PRIMARY KEY,
     name              TEXT NOT NULL,
     location_id       TEXT REFERENCES Locations(id),
-    disposition_score INTEGER NOT NULL DEFAULT 0
+    disposition_score INTEGER NOT NULL DEFAULT 0,
+    image_prompt      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS Locations (
@@ -147,19 +148,21 @@ class StateManager:
         name: str,
         location_id: Optional[str],
         disposition_score: int = 0,
+        image_prompt: Optional[str] = None,
     ) -> None:
         """Insert an NPC row, or update name/location/disposition when the id already exists."""
         with closing(sqlite3.connect(self._db_path)) as conn, conn:
             conn.execute(
                 """
-                INSERT INTO NPCs (id, name, location_id, disposition_score)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO NPCs (id, name, location_id, disposition_score, image_prompt)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     location_id = excluded.location_id,
-                    disposition_score = excluded.disposition_score
+                    disposition_score = excluded.disposition_score,
+                    image_prompt = excluded.image_prompt
                 """,
-                (npc_id, name, location_id, disposition_score),
+                (npc_id, name, location_id, disposition_score, image_prompt),
             )
 
     def upsert_location(
@@ -380,6 +383,22 @@ class StateManager:
                 (player_id, limit),
             ).fetchall()
         return [{"role": row[0], "content": row[1]} for row in reversed(rows)]
+
+    def update_chat_turn(self, message_id: int, new_content: str) -> None:
+        """Update the content of a specific chat turn."""
+        with closing(sqlite3.connect(self._db_path)) as conn, conn:
+            conn.execute(
+                "UPDATE ChatHistory SET content = ? WHERE id = ?",
+                (new_content, message_id),
+            )
+
+    def delete_chat_turns_after(self, message_id: int) -> None:
+        """Delete all chat turns that come after the given message ID."""
+        with closing(sqlite3.connect(self._db_path)) as conn, conn:
+            conn.execute(
+                "DELETE FROM ChatHistory WHERE id > ?",
+                (message_id,),
+            )
 
     # --------------------------------------------------------- state mutations
 
