@@ -519,3 +519,6 @@ curl http://localhost:8000/health        # Backend config dump
 | `frontend/src/GameStateContext.tsx` | Client state + submit pipeline |
 | `frontend/src/ChatInterface.tsx` | Narrative chat surface |
 | `frontend/src/Sidebar.tsx` | Live stat/inventory/quest panels |
+
+
+P.S. This project has been discontinued due to me being dissatisfied with the results I got from the bare agentic ai I was using. The continuation of this project can be found in a simmilarly titled repo on this page.
